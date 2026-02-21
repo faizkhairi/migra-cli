@@ -2,6 +2,8 @@
 
 import { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { init } from './commands/init.js';
 import { generate } from './commands/generate.js';
 import { up } from './commands/up.js';
@@ -9,6 +11,9 @@ import { down } from './commands/down.js';
 import { status } from './commands/status.js';
 import { getConnection, closeConnection } from './core/connection.js';
 import type { MigraConfig } from './types.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8')) as { version: string };
 
 const program = new Command();
 
@@ -23,7 +28,7 @@ function loadConfig(): MigraConfig {
 program
   .name('migra')
   .description('Database migration tool with rollback and safety checks')
-  .version('1.0.0');
+  .version(pkg.version);
 
 program
   .command('init')
@@ -55,10 +60,11 @@ program
 program
   .command('down')
   .description('Rollback the last batch of migrations')
-  .action(async () => {
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(async (opts) => {
     const config = loadConfig();
     const db = getConnection(config);
-    await down(db, config);
+    await down(db, config, { yes: opts.yes });
     await closeConnection();
   });
 

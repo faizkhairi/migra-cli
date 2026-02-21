@@ -1,6 +1,6 @@
 {
   "name": "@faizkhairi/migra-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Database migration tool CLI with rollback, safety checks, and template generation",
   "type": "module",
   "bin": {
