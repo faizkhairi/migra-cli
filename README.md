@@ -1,5 +1,8 @@
 # migra-cli
 
+![CI](https://github.com/faizkhairi/migra-cli/actions/workflows/ci.yml/badge.svg)
+![npm](https://img.shields.io/npm/v/@faizkhairi/migra-cli)
+
 A database migration tool CLI with rollback support, destructive operation safety checks, and SQL template generation.
 
 ## Features
