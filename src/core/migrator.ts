@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Knex } from 'knex';
 import { parseMigration } from './parser.js';
-import { checkSafety } from './safety.js';
+import { checkSafety, type SafetyWarning } from './safety.js';
 import { ensureMigrationsTable } from './connection.js';
 import type { MigrationRecord } from '../types.js';
 
@@ -10,6 +10,57 @@ export interface MigrationResult {
   name: string;
   direction: 'up' | 'down';
   warnings: string[];
+}
+
+/**
+ * Thrown when a migration contains destructive statements and was refused
+ * (no --force, and no interactive confirmation).
+ */
+export class DestructiveMigrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DestructiveMigrationError';
+  }
+}
+
+export interface RunOptions {
+  /** Skip the destructive-statement confirmation entirely. */
+  force?: boolean;
+  /**
+   * Called to ask for interactive confirmation when a destructive statement
+   * is found and `force` is not set. Only pass this when stdin is a TTY;
+   * omitting it means "refuse non-interactively".
+   */
+  confirmFn?: (message: string) => Promise<boolean>;
+}
+
+/**
+ * Apply the up-front destructive-statement gate shared by up and down.
+ * Throws `DestructiveMigrationError` if the migration is refused.
+ */
+async function guardDestructive(
+  file: string,
+  warnings: SafetyWarning[],
+  opts: RunOptions
+): Promise<void> {
+  if (warnings.length === 0 || opts.force) return;
+
+  const labels = warnings.map((w) => w.label).join(', ');
+
+  if (opts.confirmFn) {
+    const ok = await opts.confirmFn(
+      `'${file}' contains destructive statement(s): ${labels}. Continue?`
+    );
+    if (ok) return;
+    throw new DestructiveMigrationError(
+      `Refusing to run '${file}': destructive statement(s) not confirmed (${labels}).`
+    );
+  }
+
+  throw new DestructiveMigrationError(
+    `Refusing to run '${file}': contains destructive statement(s) (${labels}). ` +
+      'Pass --force to run anyway, or run interactively to confirm.'
+  );
 }
 
 /**
@@ -38,7 +89,8 @@ async function getApplied(db: Knex): Promise<MigrationRecord[]> {
  */
 export async function migrateUp(
   db: Knex,
-  migrationsDir: string
+  migrationsDir: string,
+  opts: RunOptions = {}
 ): Promise<MigrationResult[]> {
   const applied = await getApplied(db);
   const appliedNames = new Set(applied.map((r) => r.name));
@@ -60,13 +112,15 @@ export async function migrateUp(
       throw new Error(`No UP section found in ${file}`);
     }
 
-    const warnings = checkSafety(up).map(
-      (w) => `${w.label} on line ${w.line}`
-    );
+    const safetyWarnings = checkSafety(up);
+    await guardDestructive(file, safetyWarnings, opts);
 
-    await db.raw(up);
-    await db('migra_migrations').insert({ name: file, batch });
+    await db.transaction(async (trx) => {
+      await trx.raw(up);
+      await trx('migra_migrations').insert({ name: file, batch });
+    });
 
+    const warnings = safetyWarnings.map((w) => `${w.label} on line ${w.line}`);
     results.push({ name: file, direction: 'up', warnings });
   }
 
@@ -78,7 +132,8 @@ export async function migrateUp(
  */
 export async function migrateDown(
   db: Knex,
-  migrationsDir: string
+  migrationsDir: string,
+  opts: RunOptions = {}
 ): Promise<MigrationResult[]> {
   const applied = await getApplied(db);
   if (applied.length === 0) return [];
@@ -99,13 +154,15 @@ export async function migrateDown(
       throw new Error(`No DOWN section found in ${record.name}`);
     }
 
-    const warnings = checkSafety(down).map(
-      (w) => `${w.label} on line ${w.line}`
-    );
+    const safetyWarnings = checkSafety(down);
+    await guardDestructive(record.name, safetyWarnings, opts);
 
-    await db.raw(down);
-    await db('migra_migrations').where('id', record.id).del();
+    await db.transaction(async (trx) => {
+      await trx.raw(down);
+      await trx('migra_migrations').where('id', record.id).del();
+    });
 
+    const warnings = safetyWarnings.map((w) => `${w.label} on line ${w.line}`);
     results.push({ name: record.name, direction: 'down', warnings });
   }
 

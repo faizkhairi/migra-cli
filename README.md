@@ -11,7 +11,8 @@ A database migration tool CLI with rollback support, destructive operation safet
 - **Run pending** — Apply all pending migrations with batch tracking
 - **Rollback** — Undo the last batch of migrations
 - **Status table** — See applied vs pending migrations at a glance
-- **Safety checks** — Warns on DROP TABLE, TRUNCATE, DELETE FROM
+- **Safety checks**: Refuses to run DROP TABLE, TRUNCATE, DELETE FROM, DROP COLUMN, or ALTER TABLE ... DROP unless confirmed or run with `--force`
+- **Transactional**: Each migration's SQL and its tracking row are applied in a single database transaction
 - **Templates** — create-table, add-column, add-index, add-foreign-key
 - **Multi-database** — PostgreSQL, MySQL, SQLite via Knex.js
 
@@ -46,9 +47,37 @@ migra down
 |---|---|
 | `migra init` | Create `migra.json` config and `migrations/` directory |
 | `migra generate <desc>` | Generate a timestamped migration file |
-| `migra up` | Run all pending migrations |
-| `migra down` | Rollback the last batch |
+| `migra up [--force]` | Run all pending migrations |
+| `migra down [--yes] [--force]` | Rollback the last batch |
 | `migra status` | Show applied vs pending migrations |
+
+### Destructive migration safety
+
+Before running a migration, `migra` scans its SQL for destructive statements
+(`DROP TABLE`, `DROP COLUMN`, `TRUNCATE`, `DELETE FROM`, `ALTER TABLE ... DROP`).
+If any are found:
+
+- In a TTY, you'll be asked to confirm before it runs.
+- Outside a TTY (CI, scripts) it is refused and the process exits non-zero.
+- Pass `--force` (or `-f`) to `up`/`down` to skip the prompt and run anyway.
+
+This applies to both `up` and `down`: a `DOWN` section that drops what its
+`UP` created is destructive too, and needs `--force` (or confirmation) the
+same as any other destructive statement.
+
+### Transactions and DDL
+
+Each migration's SQL and its `migra_migrations` tracking row are executed in
+a single database transaction, so a failure partway through (a bad statement,
+or the tracking insert itself failing) leaves neither applied. On
+**PostgreSQL**, DDL is transactional, so this gives you a real all-or-nothing
+guarantee. On **MySQL**, DDL statements implicitly commit the current
+transaction, so a `CREATE TABLE`/`ALTER TABLE` cannot be rolled back once it
+runs; only the parts of the migration before/after that point are protected.
+**SQLite** supports transactional DDL for most statements, but some
+operations (certain `ALTER TABLE` forms) still cause an implicit commit.
+Design migrations to be safely re-run (e.g. `CREATE TABLE IF NOT EXISTS`)
+when targeting MySQL.
 
 ### Generate Options
 

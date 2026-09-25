@@ -1,21 +1,15 @@
 import chalk from 'chalk';
 import ora from 'ora';
-import * as readline from 'node:readline';
 import type { Knex } from 'knex';
 import { migrateDown } from '../core/migrator.js';
+import { confirm } from '../core/prompt.js';
 import type { MigraConfig } from '../types.js';
 
-async function confirm(message: string): Promise<boolean> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(`${message} (y/N): `, (answer) => {
-      rl.close();
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
-    });
-  });
-}
-
-export async function down(db: Knex, config: MigraConfig, opts: { yes?: boolean } = {}): Promise<void> {
+export async function down(
+  db: Knex,
+  config: MigraConfig,
+  opts: { yes?: boolean; force?: boolean } = {}
+): Promise<void> {
   if (!opts.yes) {
     const ok = await confirm(chalk.yellow('  ⚠ This will rollback the last batch of migrations. Continue?'));
     if (!ok) {
@@ -27,7 +21,10 @@ export async function down(db: Knex, config: MigraConfig, opts: { yes?: boolean 
   const spinner = ora('Rolling back last batch...').start();
 
   try {
-    const results = await migrateDown(db, config.migrationsDir);
+    const results = await migrateDown(db, config.migrationsDir, {
+      force: opts.force,
+      confirmFn: process.stdin.isTTY ? confirm : undefined,
+    });
 
     if (results.length === 0) {
       spinner.info('Nothing to rollback');

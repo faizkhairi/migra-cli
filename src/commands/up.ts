@@ -2,13 +2,21 @@ import chalk from 'chalk';
 import ora from 'ora';
 import type { Knex } from 'knex';
 import { migrateUp } from '../core/migrator.js';
+import { confirm } from '../core/prompt.js';
 import type { MigraConfig } from '../types.js';
 
-export async function up(db: Knex, config: MigraConfig): Promise<void> {
+export async function up(
+  db: Knex,
+  config: MigraConfig,
+  opts: { force?: boolean } = {}
+): Promise<void> {
   const spinner = ora('Running pending migrations...').start();
 
   try {
-    const results = await migrateUp(db, config.migrationsDir);
+    const results = await migrateUp(db, config.migrationsDir, {
+      force: opts.force,
+      confirmFn: process.stdin.isTTY ? confirm : undefined,
+    });
 
     if (results.length === 0) {
       spinner.info('No pending migrations');

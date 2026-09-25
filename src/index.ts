@@ -50,10 +50,11 @@ program
 program
   .command('up')
   .description('Run all pending migrations')
-  .action(async () => {
+  .option('-f, --force', 'Run destructive migrations without confirmation')
+  .action(async (opts) => {
     const config = loadConfig();
     const db = getConnection(config);
-    await up(db, config);
+    await up(db, config, { force: opts.force });
     await closeConnection();
   });
 
@@ -61,10 +62,11 @@ program
   .command('down')
   .description('Rollback the last batch of migrations')
   .option('-y, --yes', 'Skip confirmation prompt')
+  .option('-f, --force', 'Run destructive rollbacks without confirmation')
   .action(async (opts) => {
     const config = loadConfig();
     const db = getConnection(config);
-    await down(db, config, { yes: opts.yes });
+    await down(db, config, { yes: opts.yes, force: opts.force });
     await closeConnection();
   });
 
